@@ -1,0 +1,24 @@
+{
+  "name": "pixi-player-cli",
+  "version": "0.0.1",
+  "description": "Nodejs client for PIXI-Player, used to generate videos on headless server.",
+  "scripts": {
+    "test": "jest",
+    "dev": "npx webpack --config webpack.config.js --node-env development --mode none --watch",
+    "build": "npx webpack --config webpack.config.js --node-env production --mode none",
+    "serve": "node app.js"
+  },
+  "author": "ZhaoJun",
+  "license": "MIT",
+  "type": "module",
+  "repository": "https://github.com/miravideo/pixi-player-cli",
+  "homepage": "https://github.com/miravideo/pixi-player-cli",
+  "main": "index.js",
+  "devDependencies": {
+    "jest": "^29.3.1"
+  },
+  "dependencies": {
+    "express": "^4.18.1",
+    "puppeteer-core": "^19.4.0"
+  }
+}
