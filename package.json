@@ -15,7 +15,6 @@
   "homepage": "https://github.com/miravideo/pixi-player-cli",
   "main": "index.js",
   "devDependencies": {
-    "jest": "^29.3.1"
   },
   "dependencies": {
     "eventemitter3": "^5.0.0",
