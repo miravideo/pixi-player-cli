@@ -1,0 +1,11 @@
+<canvas width="720" height="1280">
+  <video id="bg" src="https://cos.mirav.cn/player/pic_oceans.mp4" height="100vh" blur="10rpx" duration="10" muted="true"></video>
+  <spine>
+    <video flipX="true" id="v1" src="https://cos.mirav.cn/player/pic_oceans.mp4" width="100vw" duration="1" ss="2">
+      <pframe x="0.3" y="0.1" w="0.5" h="0.7"></pframe>
+    </video>
+    <trans key="CrossZoom"></trans>
+    <video id="v2" src="https://cos.mirav.cn/player/pic_oceans.mp4" width="100vw" duration="1" ss="5"></video>
+  </spine>
+  <image width="60vw" src="https://mira-1255830993.cos.ap-shanghai.myqcloud.com/player/pic1.jpg"></image>
+</canvas>

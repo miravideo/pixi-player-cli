@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>PIXI-Player.Burner</title>
+  </head>
+  <body>
+    <div id="container" style="width:800px;height:600px;"></div>
+    <script src="{{host}}/pixi-player-core{{min}}.js" charset="utf-8"></script>
+    <script src="{{host}}/pixi-player-ui{{min}}.js" charset="utf-8"></script>
+    <!-- <script src="{{host}}/pixi-player-mixins.min.js" charset="utf-8"></script> -->
+    <script>
+      const opts = {{options}};
+      if (window["pixi-player"] && window["pixi-player"].init) {
+        window.player = window["pixi-player"].init(
+          document.getElementById('container'),
+          {
+            log: true,
+            value: opts.value,
+            useCache: opts.cache || false,
+            fps: opts.fps || 24,
+            audioSampleRate: opts.audioSampleRate || 44100,
+          },
+        );
+      }
+    </script>
+  </body>
+</html>

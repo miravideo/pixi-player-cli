@@ -1,115 +1,166 @@
 import { launch } from 'puppeteer-core';
+import EventEmitter from "eventemitter3";
 import * as fs from 'fs';
 import path from 'path';
+import { waitFor } from './utils.js';
+import Server from './server.js';
 
-// const executablePath  = '/Applications/Thorium.app/Contents/MacOS/Thorium';
-const executablePath  = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const downloadPath    = path.resolve('./');
-const url = 'http://localhost:8008/test.html';
-// const url = 'https://cos.mirav.cn/audio_visualizer/index.html?draftID=c92fe5fa832c4046d64f77e4f03afbd2';
-
-const uuid = () => {
-  let d = new Date().getTime();//Timestamp
-  let d2 = ((typeof performance !== 'undefined') && performance.now && (performance.now()*1000)) || 0;//Time in microseconds since page-load or 0 if unsupported
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      let r = Math.random() * 16;//random number between 0 and 16
-      if (d > 0) {//Use timestamp until depleted
-          r = (d + r)%16 | 0;
-          d = Math.floor(d/16);
-      } else {//Use microseconds since page-load if supported
-          r = (d2 + r)%16 | 0;
-          d2 = Math.floor(d2/16);
-      }
-      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  }).toUpperCase();
-}
-
-const sleep = (ms) => {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-const waitFor = async (func, timeout=10) => {
-  const ss = performance.now();
-  while (performance.now() - ss < (timeout * 1000)) {
-    if (func()) return true;
-    await sleep(100);
-    // console.log('waitFor', func, performance.now() - ss);
+export class Burner extends EventEmitter {
+  constructor({useLog=true}={}) {
+    super();
+    this._start = performance.now();
+    this._timer = this._start;
+    this.enableLog(useLog);
   }
-  return false;
-}
 
-const burn = async (data, filename) => {
-  let ss = performance.now();
+  enableLog(enable) {
+    this.useLog = enable;
+  }
 
-  console.log('start!', executablePath);
-  const browser = await launch({
-    // headless: false, devtools: true,
-    // slowMo: 250, // slow down by 250ms
-    args: ["--use-gl=egl"],
-    executablePath,
-  });
-
-  console.log('browser ready!', await browser.version(), performance.now() - ss);
-  ss = performance.now();
-
-  const page = await browser.newPage();
-  page.on('console', msg => console.log('PAGE LOG:', msg.text()));
-
-  console.log('tab ready!', performance.now() - ss);
-  ss = performance.now();
-
-  await page.goto(url);
-
-  console.log('page loaded!', performance.now() - ss);
-  ss = performance.now();
-
-  const meta = await page.evaluate(async () => {
-    return new Promise(async (resolve) => {
-      const sleep = (ms) => {
-        return new Promise(resolve => setTimeout(resolve, ms));
-      }
-
-      const ss = performance.now();
-      while (performance.now() - ss < (10 * 1000)) {
-        if (window.player?.core) break;
-        await sleep(100);
-      }
-
-      const playerUI = window.player;
-      if (!playerUI.core) return resolve({});
-
-      if (playerUI.core.duration) return resolve({ duration: playerUI.core.duration });
-      playerUI.on('loadedmetadata', async (meta) => resolve(meta));
+  log(...args) {
+    if (!this.useLog) return;
+    console.log(...args, {
+      cost: Number(((performance.now() - this._timer) * 0.001).toFixed(3)), 
+      total: Number(((performance.now() - this._start) * 0.001).toFixed(3))
     });
-  });
-
-  console.log('player ready!', meta, performance.now() - ss);
-  ss = performance.now();
-
-  await page._client().send('Page.setDownloadBehavior', {
-    behavior: 'allow', downloadPath,
-  });
-  console.log('set download!', performance.now() - ss);
-  ss = performance.now();
-
-  const res = await page.evaluate(async (filename) => {
-    const playerUI = window.player || player;
-    return await playerUI.export(filename);
-  }, filename);
-
-  console.log('burn done!', res, performance.now() - ss);
-  ss = performance.now();
-
-  const filepath = path.resolve(downloadPath, filename);
-  await waitFor(() => fs.existsSync(filepath));
-
-  const fileinfo = fs.statSync(filepath);
-  if (fileinfo.size !== res.byteLength) {
-    console.error('file size error!', fileinfo.size, res.byteLength);
+    this._timer = performance.now();
   }
 
-  console.log('download complete!', performance.now() - ss);
-  await browser.close();
-};
+  async burn(options, filename) {
+    if (this.burning) return;
+    this.burning = true;
+    const { executablePath, downloadPath } = options;
+    this.log('Starting browser:', executablePath);
+    const browser = await launch({
+      // headless: false, devtools: true,
+      // slowMo: 250, // slow down by 250ms
+      args: ["--use-gl=egl"],
+      executablePath,
+    });
 
-burn(null, `test_${uuid()}.mp4`);
+    const browserVersion = await browser.version();
+    this.log('Browser ready!', browserVersion);
+    this.emit('progress', { progress: 0.01, state: 'BrowserReady', browserVersion });
+
+    const page = await browser.newPage();
+    page.on('console', msg => {
+      const txt = msg.text().trim();
+      if (txt.includes('PixiJS')) return;
+      if (txt.startsWith('preloading ') && txt.endsWith('%')) {
+        const p = txt.replace('preloading ', '').replace('%', '');
+        if (!isNaN(p)) this.emit('progress', { 
+          progress: 0.1 + (0.2 * Number(p) * 0.01), 
+          state: 'Preloading'
+        });
+        this.log('Player:', txt);
+      } else if (txt.startsWith('burning ') && txt.endsWith('x') && txt.split(' ').length === 3) {
+        let [ _, p, speed ] = txt.split(' ');
+        p = p.replace('%', '');
+        if (!isNaN(p)) this.emit('progress', { 
+          progress: 0.3 + (0.6 * Number(p) * 0.01), 
+          state: 'Burning', speed,
+        });
+        this.log('Burner:', txt);
+      } else {
+        return this.useLog && console.log('PAGE LOG:', txt);
+      }
+    });
+    this.log('Tab ready!');
+
+    const svr = new Server();
+    const url = await svr.start(options);
+    this.log('Serve on:', url);
+  
+    await page.goto(url);
+    this.log('Page loaded!');
+    this.emit('progress', { progress: 0.1, state: 'PageLoaded', url });
+  
+    const meta = await page.evaluate(async () => {
+      return new Promise(async (resolve) => {
+        const sleep = (ms) => {
+          return new Promise(resolve => setTimeout(resolve, ms));
+        }
+  
+        const ss = performance.now();
+        while (performance.now() - ss < (10 * 1000)) {
+          if (window.player?.core) break;
+          await sleep(100);
+        }
+  
+        const playerUI = window.player;
+        if (!playerUI.core) return resolve({});
+  
+        if (playerUI.core.duration) return resolve({ duration: playerUI.core.duration });
+        playerUI.on('loadedmetadata', async (meta) => resolve(meta));
+      });
+    });
+  
+    this.log('Player ready!', meta);
+    this.emit('progress', { progress: 0.3, state: 'PlayerReady', meta });
+
+    await page._client().send('Page.setDownloadBehavior', {
+      behavior: 'allow', downloadPath,
+    });
+  
+    const info = await page.evaluate(async (filename) => {
+      const playerUI = window.player || player;
+      return await playerUI.export(filename);
+    }, filename);
+    this.log('Burn done!', info);
+
+    this.emit('progress', { progress: 0.95, state: 'BurnDone', info });
+
+    const filepath = path.resolve(downloadPath, filename);
+    await waitFor(() => fs.existsSync(filepath));
+
+    const fileinfo = fs.statSync(filepath);
+    if (fileinfo.size !== info.byteLength) {
+      console.error('file size error!', fileinfo.size, info.byteLength);
+    }
+
+    this.log('Saved:', filepath);
+    this.emit('progress', { progress: 0.99, state: 'Saved', filepath });
+    await browser.close();
+    await svr.stop();
+    this.burning = false;
+    this.emit('progress', { progress: 1, state: 'Done' });
+  }
+}
+
+// npm run burn xxx.json|.xml [output.mp4]
+if (process.argv.length >= 3) {
+  let executablePath = process.env['PIXI_BURNER_EXECPATH'] || '/Applications/Thorium.app/Contents/MacOS/Thorium';
+
+  const input = path.resolve(process.argv[2]);
+  const output = process.argv[3] ? path.resolve(process.argv[3]) : '';
+
+  // default set
+  const sourceNames = path.basename(input).split('.');
+  sourceNames.pop();
+  let filename = sourceNames.join('.') + '.mp4';
+  let downloadPath = path.dirname(input);
+
+  if (output) {
+    if (output.toLowerCase().endsWith('.mp4')) {
+      downloadPath = path.dirname(output);
+      filename = path.basename(output);
+    } else { // output give as folder path
+      downloadPath = output;
+    }
+  }
+
+  const opts = {
+    host: 'https://cos.mirav.cn/player',
+    // host: 'http://localhost:8008/dist', min: false, // for debug
+    // cache: true,
+    value: fs.readFileSync(process.argv[2], 'utf8'),
+    executablePath,
+    downloadPath,
+  };
+
+  (async () => {
+    const burner = new Burner();
+    await burner.burn(opts, filename);
+    process.exit(0); // exit express
+  })();
+}
